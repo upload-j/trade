@@ -104,7 +104,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--client-id", type=int, default=int(os.getenv("IB_CLIENT_ID", "1")), help="Unique client id (default: 1 or $IB_CLIENT_ID)")
     p.add_argument("--accounts", default=os.getenv("IB_ACCOUNTS", ""), help="Comma-separated account ids to include (default: all)")
     p.add_argument("--account", default=os.getenv("IB_ACCOUNT", ""), help="Single account to include (shortcut for --accounts)")
-    p.add_argument("--outfile", default=os.getenv("GREEKS_JSON", os.path.join(PROJECT_ROOT, "greeks_timeseries.jsonl")), help="Output JSONL file path")
+    p.add_argument("--outfile", default=os.getenv("GREEKS_JSON", os.path.join(PROJECT_ROOT, "greeks_timeseries.jsonl")), help="Output JSONL file path (timeseries append)")
+    p.add_argument("--latest-file", default=os.getenv("GREEKS_LATEST_JSON", os.path.join(PROJECT_ROOT, "latest_data.jsonl")), help="Latest-only JSONL file path (overwritten each snapshot)")
+    p.add_argument("--no-timeseries", action="store_true", default=bool(int(os.getenv("GREEKS_NO_TIMESERIES", "0"))), help="Do not append to --outfile; only write --latest-file each snapshot")
     p.add_argument("--interval", type=float, default=float(os.getenv("GREEKS_INTERVAL", "2")), help="Snapshot interval seconds (default: 2)")
     p.add_argument("--print", dest="do_print", action="store_true", help="Also print a human-readable summary to console each snapshot")
     p.add_argument("--once", action="store_true", help="Take a single snapshot, write/print it, and exit")
@@ -639,21 +641,30 @@ def main() -> int:
         print(f"Waiting {max(5, args.warmup) if not args.once else 5}s for market data to populate...")
     ib.sleep(max(5, args.warmup) if not args.once else 5)
 
-    # Prepare output file
+    # Prepare output paths
     outpath = os.path.abspath(args.outfile)
-    # Ensure directory exists if a nested path was provided
-    outdir = os.path.dirname(outpath)
-    if outdir and not os.path.isdir(outdir):
-        os.makedirs(outdir, exist_ok=True)
-    fp = open(outpath, "a", buffering=1)
-    print(f"Streaming Greek snapshots every {args.interval}s → {outpath}")
+    latest_outpath = os.path.abspath(args.latest_file)
+    # Ensure directories exist
+    for d in {os.path.dirname(outpath) or PROJECT_ROOT, os.path.dirname(latest_outpath) or PROJECT_ROOT}:
+        if d and not os.path.isdir(d):
+            os.makedirs(d, exist_ok=True)
+    fp = None
+    if not args.no_timeseries:
+        fp = open(outpath, "a", buffering=1)
+        print(f"Streaming Greek snapshots every {args.interval}s → {outpath}")
+    else:
+        print(f"Streaming Greek snapshots every {args.interval}s → latest-only: {latest_outpath}")
 
     # Optional HTTP static server for easy dashboard access
     httpd: ThreadingHTTPServer | None = None
     server_thread: threading.Thread | None = None
 
     if args.serve:
-        serve_dir = outdir if outdir else PROJECT_ROOT
+        # Choose a directory to serve that contains the files we write
+        if args.no_timeseries:
+            serve_dir = os.path.dirname(latest_outpath) or PROJECT_ROOT
+        else:
+            serve_dir = os.path.dirname(outpath) or PROJECT_ROOT
 
         class CORSHandler(SimpleHTTPRequestHandler):
             def __init__(self, *hargs, **hkwargs):
@@ -697,10 +708,19 @@ def main() -> int:
         # Track cash balances per account/currency for display
         cash_positions = []
 
+        # Collect emitted JSON lines for latest-only mirror
+        lines_out: list[str] = []
+
         # Helper to add into both underlying bucket and portfolio
         def add(und: str, key: str, value: float) -> None:
             agg[und][key] += float(value)
             portfolio[key] += float(value)
+
+        def emit_line(obj: dict) -> None:
+            line = json.dumps(obj)
+            lines_out.append(line)
+            if fp is not None:
+                fp.write(line + "\n")
 
         # Iterate positions and sum
         current_positions = list(positions)
@@ -1027,7 +1047,7 @@ def main() -> int:
                 "symbol": und,
             }
             rec.update({k: round(v, 6) for k, v in metrics.items()})
-            fp.write(json.dumps(rec) + "\n")
+            emit_line(rec)
             if args.do_print:
                 spot = rec.get("spot")
                 print(f"{timestamp}  {und:>10}  spot={spot if spot is not None else 'nan'}  "
@@ -1061,7 +1081,7 @@ def main() -> int:
                 "pct_move_to_double": opt.get("pct_move_to_double"),
                 "option_price": opt.get("option_price"),
             }
-            fp.write(json.dumps(opt_rec) + "\n")
+            emit_line(opt_rec)
 
         # Emit individual non-option (stock/future) positions
         for stk in stock_positions:
@@ -1078,7 +1098,7 @@ def main() -> int:
                 "spot": round(float(stk.get("spot")), 2) if stk.get("spot") is not None else None,
                 "conId": stk.get("conId"),
             }
-            fp.write(json.dumps(stk_rec) + "\n")
+            emit_line(stk_rec)
 
         # Collect and emit cash balances as 'stock' scope with type 'cash'
         try:
@@ -1131,7 +1151,7 @@ def main() -> int:
                 "spot": None,
                 "conId": None,
             }
-            fp.write(json.dumps(cash_rec) + "\n")
+            emit_line(cash_rec)
 
         # Emit portfolio total
         if portfolio:
@@ -1141,7 +1161,7 @@ def main() -> int:
                 "account": "ALL" if not accounts else ",".join(sorted(set(accounts))),
             }
             recp.update({k: round(v, 6) for k, v in portfolio.items()})
-            fp.write(json.dumps(recp) + "\n")
+            emit_line(recp)
             
         # Generate and emit risk assessment (even if no options)
         try:
@@ -1179,7 +1199,7 @@ def main() -> int:
                     "account": "ALL" if not accounts else ",".join(sorted(set(accounts))),
                     **risk_summary
                 }
-                fp.write(json.dumps(risk_record) + "\n")
+                emit_line(risk_record)
                 
                 if args.debug:
                     print(f"Risk Assessment - Beta-weighted delta: {risk_summary['beta_weighted_totals']['delta']:.0f}, "
@@ -1198,7 +1218,17 @@ def main() -> int:
                   f"ΓΔ@1%={recp.get('gamma_1pct_delta', 0):.2f}  $Γ@1%={recp.get('gamma_dollar_1pct', 0):.2f}  "
                   f"$V@1vol={recp.get('vega_dollar_1volpt', 0):.2f}  $Θ/day={recp.get('theta_dollar_day', 0):.2f}")
 
-        fp.flush()
+        # Overwrite latest-only file each snapshot
+        try:
+            with open(latest_outpath, "w", buffering=1) as lfp:
+                if lines_out:
+                    lfp.write("\n".join(lines_out) + "\n")
+        except Exception as e:
+            if args.debug:
+                print(f"Failed to write latest file {latest_outpath}: {e}")
+
+        if fp is not None:
+            fp.flush()
 
     try:
         print("Press Ctrl+C to stop.")
@@ -1215,10 +1245,11 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
-        try:
-            fp.close()
-        except Exception:
-            pass
+        if fp is not None:
+            try:
+                fp.close()
+            except Exception:
+                pass
         if httpd:
             try:
                 httpd.shutdown()
