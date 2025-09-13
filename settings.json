@@ -1,0 +1,14 @@
+{
+  "files.watcherExclude": {
+    "**/@greeks_aggregate/data/**": true,
+    "**/@ideas/**": true
+  },
+  "search.exclude": {
+    "**/@greeks_aggregate/data/**": false,
+    "**/@ideas/**": false
+  },
+  "files.exclude": {
+    "**/@greeks_aggregate/data/**": false,
+    "**/@ideas/**": false
+  }
+}

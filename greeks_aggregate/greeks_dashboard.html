@@ -1,0 +1,1468 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Greeks Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <style>
+    /* Reverted dark theme */
+    :root {
+      --bg:#0f172a;        /* slate-900 */
+      --panel:#111827;     /* slate-800 */
+      --text:#e5e7eb;      /* slate-200 */
+      --muted:#9ca3af;     /* slate-400 */
+      --border:#1f2937;    /* slate-700 */
+      --accent:#22d3ee;    /* cyan-300 */
+      --pos:#10b981;       /* emerald-500 */
+      --neg:#ef4444;       /* red-500 */
+      --row:#0b1324;       /* custom dark row */
+      --row-alt:#0e162b;   /* custom dark row alt */
+    }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    header { padding:16px 20px; background:#0b1220; border-bottom:1px solid var(--border); }
+    h1 { margin:0; font-size:20px; font-weight:600; color:#e2e8f0; }
+    main { padding:16px; display:grid; gap:16px; grid-template-columns: 1fr; }
+    .controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    select, button, input[type="text"] { background:#0b1220; color:var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; }
+    button { background: transparent; border-color: var(--accent); color: var(--accent); }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:14px; }
+    .card h2 { margin:0 0 8px 0; font-size:14px; color:#cbd5e1; letter-spacing:0.2px; }
+    table { width:100%; border-collapse:separate; border-spacing:0; font-size:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    thead th { background:#0b1220; color:#cbd5e1; font-weight:600; }
+    th, td { border-bottom:1px solid var(--border); padding:8px 10px; text-align:right; }
+    tbody tr:nth-child(odd) { background: var(--row); }
+    tbody tr:nth-child(even) { background: var(--row-alt); }
+    tbody tr:hover { filter: brightness(1.05); }
+    th:first-child, td:first-child { text-align:left; }
+    .muted { color:var(--muted); }
+    .kpis { display:grid; grid-template-columns: repeat(6, minmax(140px,1fr)); gap:12px; }
+    .kpi { background:#0b1220; border:1px solid var(--border); border-radius:12px; padding:12px; }
+    .kpi .label { font-size:11px; color:#9ca3af; }
+    .kpi .value { font-size:20px; font-weight:700; margin-top:6px; color:#e5e7eb; }
+    .pos { color: var(--pos) !important; }
+    .neg { color: var(--neg) !important; }
+    .hidden { display:none; }
+    footer { color:var(--muted); font-size:12px; padding:8px 16px; }
+    
+    /* Tab Navigation */
+    .tabs { 
+      display: flex; 
+      background: var(--panel); 
+      border-bottom: 1px solid var(--border); 
+      padding: 0 16px;
+    }
+    .tab-button { 
+      background: transparent; 
+      border: none; 
+      color: var(--muted); 
+      padding: 12px 20px; 
+      cursor: pointer; 
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .tab-button:hover { 
+      color: var(--text); 
+      background: rgba(34, 211, 238, 0.1);
+    }
+    .tab-button.active { 
+      color: var(--accent); 
+      border-bottom-color: var(--accent);
+      background: rgba(34, 211, 238, 0.05);
+    }
+    
+    /* Tab Content */
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    
+    /* Long/Short View Styles */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    
+    .summary-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    
+    .summary-card h3 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .summary-card .value {
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0;
+    }
+    
+    .summary-card.long .value { color: var(--pos); }
+    .summary-card.short .value { color: var(--neg); }
+    .summary-card.net .value { color: var(--text); }
+    
+    .tables-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    
+    .table-section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    
+    .table-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    
+    .table-header h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    .table-header.long h2 { color: var(--pos); }
+    .table-header.short h2 { color: var(--neg); }
+    
+    @media (max-width: 960px) { 
+      .grid { grid-template-columns: 1fr; } 
+      .kpis{ grid-template-columns: repeat(2,1fr);}
+      .tables-container { grid-template-columns: 1fr; }
+      .summary-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Greeks Dashboard</h1>
+    <div class="controls">
+      <label class="muted">Refresh
+        <select id="refresh">
+          <option value="2">2s</option>
+          <option value="5" selected>5s</option>
+          <option value="10">10s</option>
+          <option value="30">30s</option>
+        </select>
+      </label>
+      <label>File URL:
+        <input id="fileUrl" type="text" value="greeks_timeseries.jsonl" size="36" style="background:#0b1220;color:var(--text);border:1px solid #1f2937;border-radius:8px;padding:8px 10px;" />
+      </label>
+      <label>or Pick File:
+        <input id="filePick" type="file" accept=".jsonl,.json,application/json,text/plain" />
+      </label>
+      <button id="reload">Reload</button>
+      <label class="muted"><input type="checkbox" id="toggleCharts"> Show charts</label>
+      <label class="muted"><input type="checkbox" id="toggleRaw"> Show raw</label>
+      <span class="muted" id="status"></span>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="tabs">
+    <button class="tab-button active" data-tab="overview">Overview</button>
+    <button class="tab-button" data-tab="composition">Composition</button>
+    <button class="tab-button" data-tab="optionsTab">Options</button>
+  </nav>
+
+  <main>
+    <!-- Legacy Overview content container (kept for charts/stocks/raw visibility) -->
+    <div id="supplementalBlocks">
+
+    <div class="card hidden" id="stocksCard">
+      <h2>Stocks & Futures</h2>
+      <table id="stocks">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Type</th>
+            <th>Qty</th>
+            <th>Multiplier</th>
+            <th>Spot</th>
+            <th>Δ (shares)</th>
+            <th>$Δ</th>
+            <th>%Weight</th>
+            <th>Timestamp (UTC)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="muted" id="stocksShortSum" style="margin-top:6px; font-size:11px;"></div>
+    </div>
+
+
+    <div id="chartsBlock" class="hidden">
+      <div class="grid">
+        <div class="card">
+          <h2>Time Series</h2>
+          <canvas id="chart" height="160"></canvas>
+        </div>
+        <div class="card">
+          <h2>Latest Snapshot</h2>
+          <table id="latest">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Spot</th>
+                <th>Δ(sh)</th>
+                <th>$Δ</th>
+                <th>ΓΔ@1%</th>
+                <th>$Γ@1%</th>
+                <th>$V@1vol</th>
+                <th>$Θ/day</th>
+                <th>Timestamp (UTC)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+      <div class="card hidden" id="rawBlock">
+        <h2>Raw JSONL (tail)</h2>
+        <pre id="tail" style="white-space:pre-wrap; max-height:220px; overflow:auto; background:#0b1220; border-radius:8px; padding:8px; border:1px solid #1f2937;"></pre>
+      </div>
+    </div>
+
+    <!-- Composition Tab Content -->
+    <div class="tab-content" id="composition">
+      <div class="card">
+        <h2>Composition</h2>
+        <table id="compositionNotional" style="margin-bottom:10px;">
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>Notional ($)</th>
+              <th>Percent</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Composition by $Δ (gross)</h2>
+        <table id="compositionDelta" style="margin-bottom:10px;">
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>$Δ Gross</th>
+              <th>Percent</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Long / Short Breakdown</h2>
+        <table id="longshortBreakdown">
+          <thead>
+            <tr>
+              <th>Bucket</th>
+              <th>Long $Δ</th>
+              <th>Short $Δ</th>
+              <th>Net $Δ</th>
+              <th>Gross $Δ</th>
+              <th>% Long</th>
+              <th>% Short</th>
+              <th># Long</th>
+              <th># Short</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Leverage (Δ$ / Invested)</h2>
+        <table id="leverage">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Options Tab Content -->
+    <div class="tab-content" id="optionsTab">
+      <div class="card" id="riskCard">
+        <h2>Risk Assessment</h2>
+        <div class="kpis" id="kpis"></div>
+      </div>
+      <div class="card" id="optionsCard">
+        <h2>Options by Position</h2>
+        <table id="options">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Strike</th>
+              <th>Underlying Price</th>
+              <th>ITM Move</th>
+              <th>Days Left</th>
+              <th>Option Price</th>
+              <th>Price %</th>
+              <th>ITM Odds</th>
+              <th>Expiry</th>
+              <th>Type</th>
+              <th>Qty</th>
+              <th>Delta</th>
+              <th>Gamma</th>
+              <th>Vega</th>
+              <th>Theta</th>
+              <th>%Weight</th>
+              <th>Timestamp (UTC)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="muted" id="optionsShortSum" style="margin-top:6px; font-size:11px;"></div>
+      </div>
+    </div>
+
+    <!-- Overview Tab Content (formerly Long/Short) -->
+    <div class="tab-content active" id="overview">
+      <div class="summary-grid">
+        <div class="summary-card long">
+          <h3>Long Exposure</h3>
+          <p class="value" id="longTotal">$0</p>
+        </div>
+        <div class="summary-card short">
+          <h3>Short Exposure</h3>
+          <p class="value" id="shortTotal">$0</p>
+        </div>
+        <div class="summary-card net">
+          <h3>Net Exposure</h3>
+          <p class="value" id="netTotal">$0</p>
+        </div>
+        <div class="summary-card net">
+          <h3>Beta Δ (SPY)</h3>
+          <p class="value" id="betaDelta">0</p>
+        </div>
+      </div>
+
+      <div class="tables-container">
+        <div class="table-section">
+          <div class="table-header long">
+            <h2>Long Positions</h2>
+          </div>
+          <table id="longTable">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Type</th>
+                <th>$Δ</th>
+                <th>Beta Δ$</th>
+                <th>Beta</th>
+                <th>Position $</th>
+                <th>Weight</th>
+                <th>Δ$ Weight</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="table-section">
+          <div class="table-header short">
+            <h2>Short Positions</h2>
+          </div>
+          <table id="shortTable">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Type</th>
+                <th>$Δ</th>
+                <th>Beta Δ$</th>
+                <th>Beta</th>
+                <th>Position $</th>
+                <th>Weight</th>
+                <th>Δ$ Weight</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Serve this folder via a local web server (e.g., <code>python3 -m http.server</code>) so the dashboard can fetch <code>greeks_timeseries.jsonl</code>.
+  </footer>
+
+  <script>
+    function getQueryParam(name, fallback) {
+      const u = new URL(window.location.href);
+      return u.searchParams.get(name) || fallback;
+    }
+    const fileInput = document.getElementById('fileUrl');
+    fileInput.value = getQueryParam('file', fileInput.value);
+    const statusEl = document.getElementById('status');
+    const refreshEl = document.getElementById('refresh');
+    const tailEl = document.getElementById('tail');
+    const latestTbody = document.querySelector('#latest tbody');
+    const filePick = document.getElementById('filePick');
+    const optionsTbody = document.querySelector('#options tbody');
+    const chartsBlock = document.getElementById('chartsBlock');
+    const rawBlock = document.getElementById('rawBlock');
+    const toggleCharts = document.getElementById('toggleCharts');
+    const toggleRaw = document.getElementById('toggleRaw');
+    const kpisEl = document.getElementById('kpis');
+
+    let allRows = [];
+    let pickedFile = null;
+
+    function parseJsonl(text) {
+      const rows = [];
+      for (const line of text.split(/\n+/)) {
+        if (!line.trim()) continue;
+        try { rows.push(JSON.parse(line)); } catch(e) {}
+      }
+      return rows;
+    }
+
+    function groupLatestByUnderlying(rows) {
+      const map = new Map();
+      for (const r of rows) {
+        if (r.scope !== 'underlying') continue;
+        map.set(r.symbol, r);
+      }
+      return map;
+    }
+
+    function buildScopes(rows) { /* charts hidden by default; keep minimal */ }
+
+    function updateLatestTable(rows) {
+      if (!latestTbody) return;
+      const latest = groupLatestByUnderlying(rows);
+      const arr = Array.from(latest.values());
+      let totalGross = 0;
+      for (const r of arr) totalGross += Math.abs(Number(r.delta_dollars || 0));
+      arr.sort((a,b) => Math.abs(Number(b.delta_dollars||0)) - Math.abs(Number(a.delta_dollars||0)) || (a.symbol||'').localeCompare(b.symbol||''));
+      latestTbody.innerHTML = '';
+      for (const r of arr) {
+        const tr = document.createElement('tr');
+        const cells = [
+          r.symbol || '-',
+          fmt(r.spot),
+          fmt(r.delta_shares),
+          fmt(r.delta_dollars),
+          fmt(r.gamma_1pct_delta),
+          fmt(r.gamma_dollar_1pct),
+          fmt(r.vega_dollar_1volpt),
+          fmt(r.theta_dollar_day),
+          r.timestamp || ''
+        ];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        }
+        latestTbody.appendChild(tr);
+      }
+    }
+
+    function updateOptionsTable(rows) {
+      if (!optionsTbody) return;
+      // Aggregate latest option rows by unique key (symbol+strike+expiry+right),
+      // summing duplicate positions across accounts at the most recent timestamp
+      const OPTION_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
+      const nowMs = Date.now();
+
+      // Find most recent timestamp per option key within the age window
+      const maxTsByKey = new Map(); // key -> tsMs
+      for (const r of rows) {
+        if (r.scope !== 'option') continue;
+        if (typeof r.qty !== 'undefined' && Number(r.qty) === 0) continue;
+        const tsMs = Date.parse(r.timestamp || '');
+        if (!Number.isFinite(tsMs) || (nowMs - tsMs) > OPTION_MAX_AGE_MS) continue;
+        const key = `${r.symbol}_${r.strike}_${r.expiry}_${r.right}`;
+        const prev = maxTsByKey.get(key);
+        if (prev === undefined || tsMs > prev) maxTsByKey.set(key, tsMs);
+      }
+
+      // Aggregate rows at the most recent timestamp per key
+      const aggregated = new Map();
+      for (const r of rows) {
+        if (r.scope !== 'option') continue;
+        if (typeof r.qty !== 'undefined' && Number(r.qty) === 0) continue;
+        const tsMs = Date.parse(r.timestamp || '');
+        const key = `${r.symbol}_${r.strike}_${r.expiry}_${r.right}`;
+        if (!maxTsByKey.has(key) || tsMs !== maxTsByKey.get(key)) continue;
+
+        let a = aggregated.get(key);
+        if (!a) {
+          a = {
+            symbol: r.symbol,
+            strike: r.strike,
+            expiry: r.expiry,
+            right: r.right,
+            multiplier: Number(r.multiplier || 100),
+            spot: r.spot,
+            days_to_exp: r.days_to_exp,
+            iv: r.iv,
+            prob_itm: r.prob_itm,
+            pct_move_to_itm: r.pct_move_to_itm,
+            option_price: r.option_price,
+            timestamp: r.timestamp,
+            qty: 0,
+            delta: 0,
+            delta_dollars: 0,
+            gamma: 0,
+            vega: 0,
+            theta: 0,
+            _premium_dollars_sum: 0, // option_price * mult * qty
+            _qty_sum_for_price: 0,
+          };
+          aggregated.set(key, a);
+        }
+        const qty = Number(r.qty || 0);
+        const mult = a.multiplier;
+        const optPx = Number(r.option_price);
+        if (Number.isFinite(optPx) && Number.isFinite(qty)) {
+          a._premium_dollars_sum += optPx * mult * qty;
+          a._qty_sum_for_price += qty;
+        }
+        a.qty += qty;
+        a.delta += Number(r.delta || 0);
+        a.delta_dollars += Number(r.delta_dollars || 0);
+        a.gamma += Number(r.gamma || 0);
+        a.vega += Number(r.vega || 0);
+        a.theta += Number(r.theta || 0);
+        // Prefer latest defined spot/metadata
+        if (r.spot !== undefined && r.spot !== null) a.spot = r.spot;
+        if (r.iv !== undefined && r.iv !== null) a.iv = r.iv;
+        if (r.prob_itm !== undefined && r.prob_itm !== null) a.prob_itm = r.prob_itm;
+        if (r.pct_move_to_itm !== undefined && r.pct_move_to_itm !== null) a.pct_move_to_itm = r.pct_move_to_itm;
+        if ((r.timestamp || '') > (a.timestamp || '')) a.timestamp = r.timestamp;
+      }
+
+      const arr = Array.from(aggregated.values());
+
+      // Derive weighted average option_price if we summed multiple rows
+      for (const a of arr) {
+        if (a._qty_sum_for_price && a._qty_sum_for_price !== 0 && a.multiplier) {
+          a.option_price = (a._premium_dollars_sum / (a.multiplier * a._qty_sum_for_price));
+        }
+      }
+
+      // compute weights with fallback if premium unavailable
+      const gross = (row) => {
+        const mult = Number(row.multiplier || 100);
+        const qty = Number(row.qty || 0);
+        const px = Number(row.option_price);
+        if (Number.isFinite(px) && Number.isFinite(mult) && Number.isFinite(qty)) {
+          return Math.abs(px * mult * qty);
+        }
+        const dd = Number(row.delta_dollars);
+        if (Number.isFinite(dd) && dd !== 0) return Math.abs(dd);
+        const d = Number(row.delta);
+        const s = Number(row.spot);
+        if (Number.isFinite(d) && Number.isFinite(s)) return Math.abs(d * s);
+        return 0;
+      };
+
+      // portfolio-wide denominator includes options + stocks (incl cash)
+      let portfolioGross = 0;
+      for (const r of arr) portfolioGross += gross(r);
+
+      // Include aggregated latest stocks
+      const maxTsBySymbol = new Map();
+      for (const rr of rows) {
+        if (rr.scope !== 'stock') continue;
+        const ts = rr.timestamp || '';
+        const prev = maxTsBySymbol.get(rr.symbol);
+        if (!prev || ts > prev) maxTsBySymbol.set(rr.symbol, ts);
+      }
+      const aggStocks = new Map();
+      for (const rr of rows) {
+        if (rr.scope !== 'stock') continue;
+        if ((rr.timestamp || '') !== maxTsBySymbol.get(rr.symbol)) continue;
+        let s = aggStocks.get(rr.symbol);
+        if (!s) {
+          s = { symbol: rr.symbol, delta_shares: 0, delta_dollars: 0, spot: rr.spot, type: rr.type };
+          aggStocks.set(rr.symbol, s);
+        }
+        s.delta_shares += Number(rr.delta_shares || 0);
+        s.delta_dollars += Number(rr.delta_dollars || 0);
+        if (rr.spot !== undefined && rr.spot !== null) s.spot = rr.spot;
+      }
+      const grossS = (row) => {
+        const dd = Number(row.delta_dollars);
+        if (Number.isFinite(dd) && dd !== 0) return Math.abs(dd);
+        const ds = Number(row.delta_shares);
+        const s = Number(row.spot);
+        if (Number.isFinite(ds) && Number.isFinite(s)) return Math.abs(ds * s);
+        return 0;
+      };
+      for (const rr of aggStocks.values()) portfolioGross += grossS(rr);
+
+      // sort options by their portfolio weight
+      arr.sort((a,b) => ((portfolioGross>0? (gross(b)/portfolioGross) : 0) - (portfolioGross>0? (gross(a)/portfolioGross) : 0)));
+      optionsTbody.innerHTML = '';
+      let shortSum = 0; // sum of negative market-correlated $Δ
+      const shortTerms = []; // collect contributors for calculation display
+      for (const r of arr) {
+        const tr = document.createElement('tr');
+        const pricePct = (r.option_price !== undefined && r.option_price !== null && r.spot)
+          ? `${((Number(r.option_price) / Number(r.spot)) * 100).toFixed(2)}%`
+          : '';
+        const weight = portfolioGross > 0 ? (gross(r) / portfolioGross * 100.0) : 0;
+        const dd = Number(r.delta_dollars || (Number(r.delta || 0) * Number(r.spot || 0)));
+        if (Number.isFinite(dd) && dd < 0) {
+          const abs = -dd;
+          shortSum += abs;
+          const label = `${r.symbol} ${r.right || ''} ${r.strike ?? ''} ${r.expiry || ''}`.trim();
+          shortTerms.push({ label, value: abs });
+        }
+        const cells = [
+          r.symbol || '-',
+          r.strike ?? '-',
+          fmt(r.spot),
+          (r.pct_move_to_itm !== undefined && r.pct_move_to_itm !== null) ? `${Number(r.pct_move_to_itm).toFixed(2)}%` : '',
+          r.days_to_exp ?? '',
+          (r.option_price !== undefined && r.option_price !== null) ? Number(r.option_price).toFixed(2) : '',
+          pricePct,
+          (r.prob_itm !== undefined && r.prob_itm !== null) ? `${(Number(r.prob_itm) * 100).toFixed(1)}%` : '',
+          r.expiry || '-',
+          r.right || '-',
+          r.qty ?? '-',
+          fmt(r.delta),
+          fmt(r.gamma),
+          fmt(r.vega),
+          fmt(r.theta),
+          `${weight.toFixed(1)}%`,
+          r.timestamp || ''
+        ];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        }
+        optionsTbody.appendChild(tr);
+      }
+      const optSumEl = document.getElementById('optionsShortSum');
+      if (optSumEl) {
+        if (shortSum > 0 && shortTerms.length) {
+          shortTerms.sort((a,b)=>b.value-a.value);
+          const maxTerms = 6;
+          const shown = shortTerms.slice(0, maxTerms);
+          const remainder = shortTerms.slice(maxTerms);
+          const remainderSum = remainder.reduce((s,t)=>s+t.value,0);
+          const parts = shown.map(t=>`$${t.value.toLocaleString(undefined,{maximumFractionDigits:2})} (${t.label})`);
+          if (remainder.length) parts.push(`$${remainderSum.toLocaleString(undefined,{maximumFractionDigits:2})} from ${remainder.length} more`);
+          const formula = `$${shortSum.toLocaleString(undefined,{maximumFractionDigits:2})} = ` + parts.join(' + ');
+          const list = shortTerms.map(t=>`<li>$${t.value.toLocaleString(undefined,{maximumFractionDigits:2})} — ${t.label}</li>`).join('');
+          optSumEl.innerHTML = `<details><summary>Short exposure (options): ${formula}</summary><ul style="margin:6px 0 0 16px;">${list}</ul></details>`;
+        } else {
+          optSumEl.textContent = 'Short exposure (options): $0';
+        }
+      }
+    }
+
+    function updateStocksTable(rows) {
+      // If stocks UI is removed, no-op.
+      const tbodyEl = document.querySelector('#stocks tbody');
+      if (!tbodyEl && !document.getElementById('stocksShortSum')) return;
+      // Aggregate latest stock/future/cash rows per symbol, summing duplicates across accounts
+      const maxTsBySymbol = new Map();
+      for (const r of rows) {
+        if (r.scope !== 'stock') continue;
+        const ts = r.timestamp || '';
+        const prev = maxTsBySymbol.get(r.symbol);
+        if (!prev || ts > prev) maxTsBySymbol.set(r.symbol, ts);
+      }
+      const latestAgg = new Map();
+      for (const r of rows) {
+        if (r.scope !== 'stock') continue;
+        if ((r.timestamp || '') !== maxTsBySymbol.get(r.symbol)) continue;
+        let a = latestAgg.get(r.symbol);
+        if (!a) {
+          a = { symbol: r.symbol, type: r.type || '-', qty: 0, multiplier: r.multiplier, spot: r.spot, delta_shares: 0, delta_dollars: 0, timestamp: r.timestamp };
+          latestAgg.set(r.symbol, a);
+        }
+        // Sum numeric exposures; qty may be null for cash so guard
+        if (r.qty !== undefined && r.qty !== null) a.qty += Number(r.qty || 0);
+        if (r.multiplier !== undefined && r.multiplier !== null) a.multiplier = r.multiplier;
+        if (r.spot !== undefined && r.spot !== null) a.spot = r.spot;
+        a.delta_shares += Number(r.delta_shares || 0);
+        a.delta_dollars += Number(r.delta_dollars || 0);
+        if ((r.timestamp || '') > (a.timestamp || '')) a.timestamp = r.timestamp;
+      }
+      const arr = Array.from(latestAgg.values());
+
+      const grossS = (row) => {
+        const dd = Number(row.delta_dollars);
+        if (Number.isFinite(dd) && dd !== 0) return Math.abs(dd);
+        const ds = Number(row.delta_shares);
+        const s = Number(row.spot);
+        if (Number.isFinite(ds) && Number.isFinite(s)) return Math.abs(ds * s);
+        return 0;
+      };
+
+      // portfolio-wide denominator includes stocks (incl cash) + aggregated latest options
+      let portfolioGross = 0;
+      for (const r of arr) portfolioGross += grossS(r);
+
+      // Aggregate latest options by key and sum duplicates
+      const maxTsByKey = new Map();
+      for (const rr of rows) {
+        if (rr.scope !== 'option') continue;
+        const key = `${rr.symbol}_${rr.strike}_${rr.expiry}_${rr.right}`;
+        const ts = rr.timestamp || '';
+        const prev = maxTsByKey.get(key);
+        if (!prev || ts > prev) maxTsByKey.set(key, ts);
+      }
+      const aggOpts = new Map();
+      for (const rr of rows) {
+        if (rr.scope !== 'option') continue;
+        const key = `${rr.symbol}_${rr.strike}_${rr.expiry}_${rr.right}`;
+        if ((rr.timestamp || '') !== maxTsByKey.get(key)) continue;
+        let a = aggOpts.get(key);
+        if (!a) {
+          a = { multiplier: Number(rr.multiplier || 100), qty: 0, option_price: rr.option_price, delta: 0, delta_dollars: 0, spot: rr.spot, right: rr.right };
+          aggOpts.set(key, a);
+        }
+        const qty = Number(rr.qty || 0);
+        a.qty += qty;
+        a.delta += Number(rr.delta || 0);
+        a.delta_dollars += Number(rr.delta_dollars || 0);
+        if (rr.option_price !== undefined && rr.option_price !== null) a.option_price = rr.option_price;
+        if (rr.spot !== undefined && rr.spot !== null) a.spot = rr.spot;
+      }
+      const gross = (row) => {
+        const px = Number(row.option_price);
+        const mult = Number(row.multiplier || 100);
+        const qty = Number(row.qty || 0);
+        if (Number.isFinite(px) && Number.isFinite(mult) && Number.isFinite(qty)) {
+          return Math.abs(px * mult * qty);
+        }
+        const dd = Number(row.delta_dollars);
+        if (Number.isFinite(dd) && dd !== 0) return Math.abs(dd);
+        const d = Number(row.delta);
+        const s = Number(row.spot);
+        if (Number.isFinite(d) && Number.isFinite(s)) return Math.abs(d * s);
+        return 0;
+      };
+      for (const rr of aggOpts.values()) portfolioGross += gross(rr);
+
+      // sort stocks by portfolio weight
+      arr.sort((a,b) => ((portfolioGross>0? (grossS(b)/portfolioGross) : 0) - (portfolioGross>0? (grossS(a)/portfolioGross) : 0)) || (a.symbol||'').localeCompare(b.symbol||''));
+      const tbody = tbodyEl;
+      if (tbody) tbody.innerHTML = '';
+      let shortSum = 0; // sum of negative market-correlated $Δ
+      const shortTerms = []; // contributors for calculation display
+      for (const r of arr) {
+        const tr = document.createElement('tr');
+        const weight = portfolioGross > 0 ? (grossS(r) / portfolioGross * 100.0) : 0;
+        const dd = Number(r.delta_dollars || (Number(r.delta_shares || 0) * Number(r.spot || 0)));
+        if (Number.isFinite(dd) && dd < 0) {
+          const abs = -dd;
+          shortSum += abs;
+          const label = `${r.symbol} ${r.type || ''}`.trim();
+          shortTerms.push({ label, value: abs });
+        }
+        const cells = [
+          r.symbol || '-',
+          r.type || '-',
+          (r.qty !== 0 && r.qty !== null && r.qty !== undefined) ? r.qty : '-',
+          r.multiplier ?? '',
+          fmt(r.spot),
+          fmt(r.delta_shares),
+          fmt(r.delta_dollars),
+          `${weight.toFixed(1)}%`,
+          r.timestamp || ''
+        ];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        }
+        if (tbody) tbody.appendChild(tr);
+      }
+      const stkSumEl = document.getElementById('stocksShortSum');
+      if (stkSumEl) {
+        if (shortSum > 0 && shortTerms.length) {
+          shortTerms.sort((a,b)=>b.value-a.value);
+          const maxTerms = 6;
+          const shown = shortTerms.slice(0, maxTerms);
+          const remainder = shortTerms.slice(maxTerms);
+          const remainderSum = remainder.reduce((s,t)=>s+t.value,0);
+          const parts = shown.map(t=>`$${t.value.toLocaleString(undefined,{maximumFractionDigits:2})} (${t.label})`);
+          if (remainder.length) parts.push(`$${remainderSum.toLocaleString(undefined,{maximumFractionDigits:2})} from ${remainder.length} more`);
+          const formula = `$${shortSum.toLocaleString(undefined,{maximumFractionDigits:2})} = ` + parts.join(' + ');
+          const list = shortTerms.map(t=>`<li>$${t.value.toLocaleString(undefined,{maximumFractionDigits:2})} — ${t.label}</li>`).join('');
+          stkSumEl.innerHTML = `<details><summary>Short exposure (stocks): ${formula}</summary><ul style="margin:6px 0 0 16px;">${list}</ul></details>`;
+        } else {
+          stkSumEl.textContent = 'Short exposure (stocks): $0';
+        }
+      }
+    }
+
+    function updateRiskAssessment(rows) {
+      // Latest portfolio row (raw exposures)
+      let p = null;
+      for (let i = rows.length - 1; i >= 0; i--) { if (rows[i].scope === 'portfolio') { p = rows[i]; break; } }
+      // Latest risk assessment row (beta-weighted)
+      let r = null;
+      for (let i = rows.length - 1; i >= 0; i--) { if (rows[i].scope === 'risk_assessment') { r = rows[i]; break; } }
+
+      kpisEl.innerHTML = '';
+      if (!p && !r) { kpisEl.innerHTML = '<div class="muted">No portfolio data yet.</div>'; return; }
+
+      const num = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      const items = [];
+      if (r && r.beta_weighted_totals && typeof r.beta_weighted_totals.delta !== 'undefined') {
+        items.push(['Beta Δ (SPY-sh)', r.beta_weighted_totals.delta]);
+        if (typeof r.amplification_factor !== 'undefined') {
+          items.push(['Amplification (x)', r.amplification_factor]);
+        }
+      }
+      if (p) {
+        items.push(['Delta (shares)', num(p.delta_shares)]);
+        items.push(['Delta ($)', num(p.delta_dollars)]);
+        items.push(['Gamma Δ @1%', num(p.gamma_1pct_delta)]);
+        items.push(['Gamma $ @1%', num(p.gamma_dollar_1pct)]);
+        items.push(['Vega $/1vol', num(p.vega_dollar_1volpt)]);
+        items.push(['Theta $/day', num(p.theta_dollar_day)]);
+      }
+
+      for (const [label, val] of items) {
+        const d = document.createElement('div');
+        d.className = 'kpi';
+        const v = (label.includes('Amplification')) ? (Number(val).toFixed(2)) : fmt(val);
+        d.innerHTML = `<div class="label">${label}</div><div class="value">${v}</div>`;
+        kpisEl.appendChild(d);
+      }
+
+      // Composition table
+      try {
+        const compTbody = document.querySelector('#compositionNotional tbody');
+        if (compTbody) {
+          compTbody.innerHTML = '';
+          const comp = r && r.composition ? r.composition : null;
+          const rowsOut = [];
+          if (comp) {
+            rowsOut.push(['Options', comp.options_notional, comp.pct_options]);
+            rowsOut.push(['Equities', comp.equities_notional, comp.pct_equities]);
+            rowsOut.push(['Cash', null, comp.pct_cash]);
+          }
+          for (const [name, notional, pct] of rowsOut) {
+            const tr = document.createElement('tr');
+            const cells = [name, notional != null ? fmt(notional) : '', (pct != null && pct !== undefined) ? `${Number(pct).toFixed(1)}%` : ''];
+            for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); }
+            compTbody.appendChild(tr);
+          }
+        }
+      } catch {}
+
+      // Long/Short breakdown
+      try {
+        const lsTbody = document.querySelector('#longshortBreakdown tbody');
+        if (lsTbody) {
+          lsTbody.innerHTML = '';
+          const ls = r && r.long_short ? r.long_short : null;
+          const order = [['Options', ls && ls.options], ['Equities', ls && ls.equities], ['Portfolio', ls && ls.portfolio]];
+          for (const [label, b] of order) {
+            if (!b) continue;
+            const tr = document.createElement('tr');
+            const cells = [
+              label,
+              fmt(b.long_dd),
+              fmt(b.short_dd),
+              fmt(b.net_dd),
+              fmt(b.gross_dd),
+              `${Number(b.pct_long || 0).toFixed(1)}%`,
+              `${Number(b.pct_short || 0).toFixed(1)}%`,
+              String(b.num_long ?? ''),
+              String(b.num_short ?? ''),
+            ];
+            for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); }
+            lsTbody.appendChild(tr);
+          }
+        }
+      } catch {}
+
+      // Leverage metrics (Δ$ over invested) with long/short invested splits
+      try {
+        const levTbody = document.querySelector('#leverage tbody');
+        if (levTbody) {
+          levTbody.innerHTML = '';
+          const comp = r && r.composition ? r.composition : null;
+          const ls = r && r.long_short && r.long_short.portfolio ? r.long_short.portfolio : null;
+          const invested = comp ? Number(comp.total_invested || 0) : 0;
+          const longDD = ls ? Number(ls.long_dd || 0) : 0;
+          const shortDD = ls ? Number(ls.short_dd || 0) : 0;
+          const grossDD = longDD + shortDD;
+
+          // Compute Long Invested and Short Invested using latest rows
+          // Options: split premium dollars by qty sign, aggregated by latest key
+          const latestOptTs = new Map(); // key -> ts
+          for (const rr of rows) {
+            if (rr.scope !== 'option') continue;
+            const key = `${rr.symbol}_${rr.strike}_${rr.expiry}_${rr.right}`;
+            const ts = rr.timestamp || '';
+            const prev = latestOptTs.get(key);
+            if (!prev || ts > prev) latestOptTs.set(key, ts);
+          }
+          let optLongInv = 0, optShortInv = 0;
+          for (const rr of rows) {
+            if (rr.scope !== 'option') continue;
+            const key = `${rr.symbol}_${rr.strike}_${rr.expiry}_${rr.right}`;
+            if ((rr.timestamp || '') !== latestOptTs.get(key)) continue;
+            const px = Number(rr.option_price);
+            const mult = Number(rr.multiplier || 100);
+            const qty = Number(rr.qty || 0);
+            if (Number.isFinite(px) && Number.isFinite(mult) && Number.isFinite(qty)) {
+              const prem = Math.abs(px * mult * qty);
+              if (qty >= 0) optLongInv += prem; else optShortInv += prem;
+            }
+          }
+          // Stocks/Futures: use market value split by sign (exclude cash), aggregated latest per symbol
+          const latestStkTs = new Map();
+          for (const rr of rows) {
+            if (rr.scope !== 'stock' || rr.type === 'cash') continue;
+            const ts = rr.timestamp || '';
+            const prev = latestStkTs.get(rr.symbol);
+            if (!prev || ts > prev) latestStkTs.set(rr.symbol, ts);
+          }
+          let stkLongInv = 0, stkShortInv = 0;
+          for (const rr of rows) {
+            if (rr.scope !== 'stock' || rr.type === 'cash') continue;
+            if ((rr.timestamp || '') !== latestStkTs.get(rr.symbol)) continue;
+            const dd = Number(rr.delta_dollars != null ? rr.delta_dollars : (Number(rr.delta_shares || 0) * Number(rr.spot || 0)));
+            if (!Number.isFinite(dd)) continue;
+            if (dd >= 0) stkLongInv += dd; else stkShortInv += Math.abs(dd);
+          }
+          const longInvested = optLongInv + stkLongInv;
+          const shortInvested = optShortInv + stkShortInv;
+
+          const rowsOut = [
+            ['Total Invested', invested > 0 ? `$${fmt(invested)}` : '$0'],
+            ['Long $Δ', `$${fmt(longDD)}`],
+            ['Short $Δ', `$${fmt(shortDD)}`],
+            ['Gross $Δ (Long+Short)', `$${fmt(grossDD)}`],
+            ['Long Invested', `$${fmt(longInvested)}`],
+            ['Short Invested', `$${fmt(shortInvested)}`],
+            ['Long $Δ / Long Invested', longInvested > 0 ? (longDD / longInvested).toFixed(3) : ''],
+            ['Short $Δ / Short Invested', shortInvested > 0 ? (shortDD / shortInvested).toFixed(3) : ''],
+            ['Gross / Invested', invested > 0 ? (grossDD / invested).toFixed(3) : ''],
+          ];
+          for (const [name, val] of rowsOut) {
+            const tr = document.createElement('tr');
+            const td1 = document.createElement('td'); td1.textContent = name; tr.appendChild(td1);
+            const td2 = document.createElement('td'); td2.textContent = val; tr.appendChild(td2);
+            levTbody.appendChild(tr);
+          }
+        }
+      } catch {}
+
+      // Composition by delta-dollars (gross) using aggregated latest rows (not strict timestamp match)
+      try {
+        const compDTbody = document.querySelector('#compositionDelta tbody');
+        if (compDTbody) {
+          compDTbody.innerHTML = '';
+          // Aggregate latest options by contract key
+          const latestOptTs = new Map(); // key -> ts
+          for (const rr of rows) {
+            if (rr.scope !== 'option') continue;
+            const key = `${rr.symbol}_${rr.strike}_${rr.expiry}_${rr.right}`;
+            const ts = rr.timestamp || '';
+            const prev = latestOptTs.get(key);
+            if (!prev || ts > prev) latestOptTs.set(key, ts);
+          }
+          let optionsGross = 0;
+          for (const rr of rows) {
+            if (rr.scope !== 'option') continue;
+            const key = `${rr.symbol}_${rr.strike}_${rr.expiry}_${rr.right}`;
+            if ((rr.timestamp || '') !== latestOptTs.get(key)) continue;
+            const dd = Number(rr.delta_dollars != null ? rr.delta_dollars : (Number(rr.delta || 0) * Number(rr.spot || 0)));
+            if (Number.isFinite(dd)) optionsGross += Math.abs(dd);
+          }
+          // Aggregate latest stocks/futures by symbol (exclude cash)
+          const latestStkTs = new Map(); // symbol -> ts
+          for (const rr of rows) {
+            if (rr.scope !== 'stock' || rr.type === 'cash') continue;
+            const ts = rr.timestamp || '';
+            const prev = latestStkTs.get(rr.symbol);
+            if (!prev || ts > prev) latestStkTs.set(rr.symbol, ts);
+          }
+          let equitiesGross = 0;
+          for (const rr of rows) {
+            if (rr.scope !== 'stock' || rr.type === 'cash') continue;
+            if ((rr.timestamp || '') !== latestStkTs.get(rr.symbol)) continue;
+            const dd = Number(rr.delta_dollars != null ? rr.delta_dollars : (Number(rr.delta_shares || 0) * Number(rr.spot || 0)));
+            if (Number.isFinite(dd)) equitiesGross += Math.abs(dd);
+          }
+          const totalGross = optionsGross + equitiesGross;
+          const rowsOut = [
+            ['Options', optionsGross, totalGross ? (optionsGross / totalGross * 100.0) : 0],
+            ['Equities', equitiesGross, totalGross ? (equitiesGross / totalGross * 100.0) : 0],
+          ];
+          for (const [name, gross, pct] of rowsOut) {
+            const tr = document.createElement('tr');
+            const cells = [name, fmt(gross), `${Number(pct).toFixed(1)}%`];
+            for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); }
+            compDTbody.appendChild(tr);
+          }
+        }
+      } catch {}
+    }
+
+    function buildSeries(rows, scope, metric) {
+      const pts = [];
+      for (const r of rows) {
+        if (scope === 'portfolio' && r.scope !== 'portfolio') continue;
+        if (scope !== 'portfolio' && !(r.scope === 'underlying' && r.symbol === scope)) continue;
+        if (!(metric in r)) continue;
+        pts.push({ x: new Date(r.timestamp), y: Number(r[metric]) });
+      }
+      // sort by time
+      pts.sort((a,b) => a.x - b.x);
+      return pts;
+    }
+
+    function fmt(v) {
+      if (v === undefined || v === null || Number.isNaN(v)) return '';
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '';
+      return Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : n.toFixed(2);
+    }
+
+    // Chart.js setup (guard if CDN not available)
+    let chart = null;
+    (function setupChart() {
+      const el = document.getElementById('chart');
+      if (!el || typeof window.Chart === 'undefined' || !el.getContext) return;
+      try {
+        const ctx = el.getContext('2d');
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: { datasets: [{ label: 'Metric', data: [], borderColor: '#22d3ee', tension: 0.15, pointRadius: 0 }] },
+          options: {
+            responsive: true,
+            scales: {
+              x: { type: 'time', time: { unit: 'minute' }, grid: { color: '#1f2937' }, ticks: { color: '#9ca3af' } },
+              y: { grid: { color: '#1f2937' }, ticks: { color: '#9ca3af' } }
+            },
+            plugins: { legend: { labels: { color: '#cbd5e1' } } }
+          }
+        });
+      } catch (e) {
+        chart = null;
+      }
+    })();
+
+    async function reloadFile(showTail=true) {
+      try {
+        statusEl.textContent = 'Loading…';
+        let text = '';
+        if (pickedFile) {
+          text = await pickedFile.text();
+        } else {
+          const url = fileInput.value.trim();
+          if (!url) throw new Error('No file URL specified');
+          const res = await fetch(url, { cache: 'no-store' });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          text = await res.text();
+        }
+        allRows = parseJsonl(text);
+        buildScopes(allRows);
+        updateLatestTable(allRows);
+        updateOptionsTable(allRows);
+        updateStocksTable(allRows);
+        updateRiskAssessment(allRows);
+        if (showTail) {
+          const lines = text.trim().split(/\n/);
+          tailEl.textContent = lines.slice(-40).join('\n');
+        }
+        updateChart();
+        statusEl.textContent = `Loaded ${allRows.length} rows`;
+      } catch (e) {
+        statusEl.textContent = 'Load failed: ' + (e && e.message ? e.message : e);
+      }
+    }
+
+    function updateChart() {
+      // Use UI selects if present; otherwise fall back to defaults
+      const metricSelect = document.getElementById('metric');
+      const scopeSelect = document.getElementById('scope');
+      const metric = metricSelect ? metricSelect.value : 'delta_dollars';
+      const scope = scopeSelect ? scopeSelect.value : 'portfolio';
+      if (!chart) return;
+      const data = buildSeries(allRows, scope, metric);
+      chart.data.datasets[0].label = `${scope} · ${metric}`;
+      chart.data.datasets[0].data = data;
+      chart.update('none');
+    }
+
+    document.getElementById('reload').addEventListener('click', () => reloadFile());
+    fileInput.addEventListener('change', () => { pickedFile = null; reloadFile(); });
+    filePick.addEventListener('change', (ev) => {
+      pickedFile = ev.target.files && ev.target.files[0] ? ev.target.files[0] : null;
+      if (pickedFile) reloadFile();
+    });
+    toggleCharts.addEventListener('change', (e)=>{
+      chartsBlock.classList.toggle('hidden', !e.target.checked);
+      if (e.target.checked) updateChart();
+    });
+    toggleRaw.addEventListener('change', (e)=>{
+      rawBlock.classList.toggle('hidden', !e.target.checked);
+    });
+
+    let timer = null;
+    function schedule() {
+      if (timer) clearInterval(timer);
+      const secs = parseInt(refreshEl.value, 10) || 5;
+      timer = setInterval(() => reloadFile(false), secs * 1000);
+    }
+    refreshEl.addEventListener('change', () => { schedule(); });
+
+    // Tab switching functionality
+    function initTabs() {
+      const tabButtons = document.querySelectorAll('.tab-button');
+      const tabContents = document.querySelectorAll('.tab-content');
+      
+      tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          const targetTab = button.getAttribute('data-tab');
+          
+          // Remove active class from all buttons and contents
+          tabButtons.forEach(btn => btn.classList.remove('active'));
+          tabContents.forEach(content => content.classList.remove('active'));
+          
+          // Add active class to clicked button and corresponding content
+          button.classList.add('active');
+          document.getElementById(targetTab).classList.add('active');
+        });
+      });
+    }
+
+    // Long/Short view functions
+    function getBeta(symbol) {
+      // Beta mapping for common symbols
+      const betaMap = {
+        'SPY': 1.0,
+        'QQQ': 1.2,
+        'AAPL': 1.1,
+        'MSFT': 1.0,
+        'GOOGL': 1.1,
+        'AMZN': 1.2,
+        'TSLA': 2.0,
+        'NVDA': 1.5,
+        'META': 1.3,
+        'NFLX': 1.4
+      };
+      return betaMap[symbol] || 1.0; // Default to 1.0 if unknown
+    }
+
+    function calculateBetaWeightedDelta(deltaDollars, symbol) {
+      const beta = getBeta(symbol);
+      return Number(deltaDollars) * beta;
+    }
+
+    function aggregateLatestPositions(rows) {
+      // Aggregate options by unique key (symbol+strike+expiry+right)
+      const optionMap = new Map();
+      const stockMap = new Map();
+      
+      // Find latest timestamp for each position
+      const latestTimestamps = new Map();
+      
+      for (const row of rows) {
+        if (row.scope === 'option') {
+          const key = `${row.symbol}_${row.strike}_${row.expiry}_${row.right}`;
+          const ts = row.timestamp || '';
+          if (!latestTimestamps.has(key) || ts > latestTimestamps.get(key)) {
+            latestTimestamps.set(key, ts);
+          }
+        } else if (row.scope === 'stock') {
+          const symbol = row.symbol;
+          const ts = row.timestamp || '';
+          if (!latestTimestamps.has(symbol) || ts > latestTimestamps.get(symbol)) {
+            latestTimestamps.set(symbol, ts);
+          }
+        }
+      }
+      
+      // Aggregate positions at latest timestamps
+      for (const row of rows) {
+        if (row.scope === 'option') {
+          const key = `${row.symbol}_${row.strike}_${row.expiry}_${row.right}`;
+          if (row.timestamp !== latestTimestamps.get(key)) continue;
+          
+          if (!optionMap.has(key)) {
+            optionMap.set(key, {
+              symbol: row.symbol,
+              type: 'option',
+              strike: row.strike,
+              expiry: row.expiry,
+              right: row.right,
+              qty: 0,
+              spot: row.spot,
+              delta_dollars: 0,
+              multiplier: Number(row.multiplier || 100),
+              option_price: row.option_price
+            });
+          }
+          
+          const pos = optionMap.get(key);
+          pos.qty += Number(row.qty || 0);
+          pos.delta_dollars += Number(row.delta_dollars || 0);
+        } else if (row.scope === 'stock') {
+          const symbol = row.symbol;
+          if (row.timestamp !== latestTimestamps.get(symbol)) continue;
+          
+          if (!stockMap.has(symbol)) {
+            stockMap.set(symbol, {
+              symbol: row.symbol,
+              type: row.type || 'stock',
+              qty: 0,
+              spot: row.spot,
+              delta_dollars: 0,
+              multiplier: row.multiplier
+            });
+          }
+          
+          const pos = stockMap.get(symbol);
+          pos.qty += Number(row.qty || 0);
+          pos.delta_dollars += Number(row.delta_dollars || 0);
+        }
+      }
+      
+      return [...optionMap.values(), ...stockMap.values()];
+    }
+
+    function updateLongShortView(rows) {
+      const positions = aggregateLatestPositions(rows);
+      
+      // Separate long and short positions
+      const longPositions = [];
+      const shortPositions = [];
+      
+      let totalLongDelta = 0;
+      let totalShortDelta = 0;
+      let totalBetaWeightedDelta = 0;
+      
+      // Calculate portfolio weight denominator using premium for options where available
+      const positionSize = (pos) => {
+        if (pos.type === 'option') {
+          const mult = Number(pos.multiplier || 100);
+          const qty = Number(pos.qty || 0);
+          const px = Number(pos.option_price);
+          if (Number.isFinite(mult) && Number.isFinite(qty) && Number.isFinite(px)) {
+            return Math.abs(px * mult * qty);
+          }
+        }
+        const dd = Number(pos.delta_dollars || 0);
+        if (Number.isFinite(dd) && dd !== 0) return Math.abs(dd);
+        const d = Number(pos.delta || 0);
+        const s = Number(pos.spot || 0);
+        if (Number.isFinite(d) && Number.isFinite(s)) return Math.abs(d * s);
+        return 0;
+      };
+      let totalGrossExposure = 0;
+      let totalGrossDelta = 0;
+      for (const pos of positions) {
+        totalGrossExposure += positionSize(pos);
+        totalGrossDelta += Math.abs(Number(pos.delta_dollars || 0));
+      }
+      
+      for (const pos of positions) {
+        const deltaDollars = Number(pos.delta_dollars || 0);
+        const beta = getBeta(pos.symbol);
+        const betaWeightedDelta = calculateBetaWeightedDelta(deltaDollars, pos.symbol);
+        const posDollars = positionSize(pos);
+        const weight = totalGrossExposure > 0 ? (posDollars / totalGrossExposure * 100) : 0;
+        const weightDelta = totalGrossDelta > 0 ? (Math.abs(deltaDollars) / totalGrossDelta * 100) : 0;
+        
+        const positionData = {
+          ...pos,
+          weight: weight,
+          beta_weighted_delta: betaWeightedDelta,
+          beta: beta,
+          position_dollars: posDollars,
+          weight_delta: weightDelta
+        };
+        
+        if (deltaDollars > 0) {
+          longPositions.push(positionData);
+          totalLongDelta += deltaDollars;
+        } else if (deltaDollars < 0) {
+          shortPositions.push(positionData);
+          totalShortDelta += Math.abs(deltaDollars);
+        }
+        
+        totalBetaWeightedDelta += betaWeightedDelta;
+      }
+      
+      // Sort positions by absolute delta dollars
+      longPositions.sort((a, b) => Math.abs(b.delta_dollars) - Math.abs(a.delta_dollars));
+      shortPositions.sort((a, b) => Math.abs(b.delta_dollars) - Math.abs(a.delta_dollars));
+      
+      // Update summary cards
+      document.getElementById('longTotal').textContent = fmtCurrency(totalLongDelta);
+      document.getElementById('shortTotal').textContent = fmtCurrency(totalShortDelta);
+      document.getElementById('netTotal').textContent = fmtCurrency(totalLongDelta - totalShortDelta);
+      document.getElementById('betaDelta').textContent = fmt(totalBetaWeightedDelta);
+      
+      // Update tables
+      updateLongShortTable(document.querySelector('#longTable tbody'), longPositions);
+      updateLongShortTable(document.querySelector('#shortTable tbody'), shortPositions);
+    }
+
+    function updateLongShortTable(tbody, positions) {
+      tbody.innerHTML = '';
+      
+      if (positions.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 8;
+        td.textContent = 'No positions';
+        td.style.textAlign = 'center';
+        td.style.color = 'var(--muted)';
+        td.style.padding = '20px';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      
+      for (const pos of positions) {
+        const tr = document.createElement('tr');
+        // Position $: for options use premium (price * multiplier * qty); else fallback to |$Δ|
+        let positionDollars = Math.abs(Number(pos.delta_dollars || 0));
+        if (pos.type === 'option') {
+          const mult = Number(pos.multiplier || 100);
+          const qty = Number(pos.qty || 0);
+          const px = Number(pos.option_price);
+          if (Number.isFinite(mult) && Number.isFinite(qty) && Number.isFinite(px)) {
+            positionDollars = Math.abs(px * mult * qty);
+          }
+        }
+        
+        const cells = [
+          pos.symbol || '-',
+          pos.type || '-',
+          fmtCurrency(pos.delta_dollars),
+          fmtCurrency(pos.beta_weighted_delta),
+          fmt(pos.beta),
+          fmtCurrency(positionDollars),
+          `${pos.weight.toFixed(1)}%`,
+          `${(pos.weight_delta ?? 0).toFixed(1)}%`
+        ];
+        
+        for (const cellText of cells) {
+          const td = document.createElement('td');
+          td.textContent = cellText;
+          tr.appendChild(td);
+        }
+        
+        tbody.appendChild(tr);
+      }
+      // Reapply sort if user selected a column
+      try {
+        const table = tbody.closest('table');
+        const tableId = table && table.id;
+        if (tableId) reapplyTableSort(tableId);
+      } catch {}
+    }
+
+    function fmtCurrency(v) {
+      if (v === undefined || v === null || Number.isNaN(v)) return '$0';
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '$0';
+      return '$' + (Math.abs(n) >= 1000 ? 
+        n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : 
+        n.toFixed(2));
+    }
+
+    // Modified reloadFile to also update Long/Short view
+    const originalReloadFile = reloadFile;
+    reloadFile = async function(showTail=true) {
+      await originalReloadFile(showTail);
+      updateLongShortView(allRows);
+    };
+
+    // Initialize tabs
+    initTabs();
+
+    // Simple sortable tables for Overview's Long/Short tables
+    const tableSortStates = {};
+    function toNumeric(val) {
+      if (!val) return NaN;
+      const s = String(val).replace(/[$,%\s,]/g, '');
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : NaN;
+    }
+    function sortTable(table, colIndex, asc, numeric) {
+      const tbody = table.querySelector('tbody');
+      if (!tbody) return;
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((ra, rb) => {
+        const ta = (ra.children[colIndex]?.textContent || '').trim();
+        const tb = (rb.children[colIndex]?.textContent || '').trim();
+        const na = numeric ? toNumeric(ta) : NaN;
+        const nb = numeric ? toNumeric(tb) : NaN;
+        if (numeric && (!Number.isNaN(na) || !Number.isNaN(nb))) {
+          if (Number.isNaN(na)) return 1;
+          if (Number.isNaN(nb)) return -1;
+          return asc ? (na - nb) : (nb - na);
+        }
+        return asc ? ta.localeCompare(tb) : tb.localeCompare(ta);
+      });
+      rows.forEach(r => tbody.appendChild(r));
+    }
+    function makeTableSortable(tableId, numericCols) {
+      const table = document.getElementById(tableId);
+      if (!table) return;
+      const ths = table.querySelectorAll('thead th');
+      tableSortStates[tableId] = tableSortStates[tableId] || { index: -1, asc: true, numericCols };
+      ths.forEach((th, idx) => {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', () => {
+          const current = tableSortStates[tableId] || { index: -1, asc: true, numericCols };
+          const asc = current.index === idx ? !current.asc : true;
+          tableSortStates[tableId] = { index: idx, asc, numericCols };
+          sortTable(table, idx, asc, numericCols.has(idx));
+        });
+      });
+    }
+    function reapplyTableSort(tableId) {
+      const state = tableSortStates[tableId];
+      const table = document.getElementById(tableId);
+      if (!state || !table || state.index < 0) return;
+      sortTable(table, state.index, state.asc, state.numericCols.has(state.index));
+    }
+    // Columns: Symbol(0), Type(1), $Δ(2), Beta Δ$(3), Beta(4), Position $(5), Weight(6), Δ$ Weight(7)
+    makeTableSortable('longTable', new Set([2,3,4,5,6,7]));
+    makeTableSortable('shortTable', new Set([2,3,4,5,6,7]));
+
+    // Kick off
+    reloadFile();
+    schedule();
+  </script>
+</body>
+</html>
