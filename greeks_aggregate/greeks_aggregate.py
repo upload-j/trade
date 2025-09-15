@@ -1107,7 +1107,7 @@ def main() -> int:
             whitelist = set(x.strip().upper() for x in (args.cash_currencies.split(',') if args.cash_currencies else []) if x.strip())
             for acct in acct_ids:
                 try:
-                    summary = ib.accountSummary(acct)
+                    summary = ib.accountValues(acct)
                     # Use only exact CashBalance per currency to avoid double-counting from TotalCashValue.
                     cash_balance_by_ccy: dict[str, float] = {}
                     for item in summary:

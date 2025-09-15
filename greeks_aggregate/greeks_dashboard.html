@@ -1352,16 +1352,6 @@
       
       for (const pos of positions) {
         const tr = document.createElement('tr');
-        // Position $: for options use premium (price * multiplier * qty); else fallback to |$Δ|
-        let positionDollars = Math.abs(Number(pos.delta_dollars || 0));
-        if (pos.type === 'option') {
-          const mult = Number(pos.multiplier || 100);
-          const qty = Number(pos.qty || 0);
-          const px = Number(pos.option_price);
-          if (Number.isFinite(mult) && Number.isFinite(qty) && Number.isFinite(px)) {
-            positionDollars = Math.abs(px * mult * qty);
-          }
-        }
         
         const cells = [
           pos.symbol || '-',
@@ -1369,7 +1359,7 @@
           fmtCurrency(pos.delta_dollars),
           fmtCurrency(pos.beta_weighted_delta),
           fmt(pos.beta),
-          fmtCurrency(positionDollars),
+          fmtCurrency(pos.position_dollars),
           `${pos.weight.toFixed(1)}%`,
           `${(pos.weight_delta ?? 0).toFixed(1)}%`
         ];

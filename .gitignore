@@ -135,3 +135,4 @@ ib_async/
 greeks_aggregate/greeks_timeseries.jsonl
 greeks_aggregate/data/
 *.jsonl
+.aider*
