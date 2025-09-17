@@ -179,6 +179,7 @@
     <button class="tab-button active" data-tab="overview">Overview</button>
     <button class="tab-button" data-tab="composition">Composition</button>
     <button class="tab-button" data-tab="optionsTab">Options</button>
+    <button class="tab-button" data-tab="workspace">Workspace</button>
   </nav>
 
   <main>
@@ -375,6 +376,7 @@
                 <th>Position $</th>
                 <th>Weight</th>
                 <th>Δ$ Weight</th>
+                <th>Beta Δ$ Weight</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -396,6 +398,101 @@
                 <th>Position $</th>
                 <th>Weight</th>
                 <th>Δ$ Weight</th>
+                <th>Beta Δ$ Weight</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Workspace Tab Content -->
+    <div class="tab-content" id="workspace">
+      <div class="card">
+        <button id="syncWorkspace">Sync with Live Portfolio</button>
+        <h2>Add Position</h2>
+        <form id="addPositionForm" style="display: flex; flex-wrap: wrap; gap: 10px;">
+          <input type="text" id="wsSymbol" placeholder="Symbol" required>
+          <select id="wsType">
+            <option value="stock">Stock</option>
+            <option value="option">Option</option>
+          </select>
+          <input type="number" id="wsQty" placeholder="Quantity" required>
+          <input type="number" id="wsStrike" placeholder="Strike">
+          <input type="text" id="wsExpiry" placeholder="Expiry (YYYY-MM-DD)">
+          <select id="wsRight">
+            <option value="C">Call</option>
+            <option value="P">Put</option>
+          </select>
+          <input type="number" step="any" id="wsDelta" placeholder="Delta">
+          <input type="number" step="any" id="wsGamma" placeholder="Gamma">
+          <input type="number" step="any" id="wsVega" placeholder="Vega">
+          <input type="number" step="any" id="wsTheta" placeholder="Theta">
+          <input type="number" step="any" id="wsPrice" placeholder="Price">
+          <button type="submit">Add</button>
+        </form>
+      </div>
+      <div class="summary-grid" id="wsSummaryGrid">
+        <div class="summary-card long">
+          <h3>Long Exposure</h3>
+          <p class="value" id="wsLongTotal">$0</p>
+        </div>
+        <div class="summary-card short">
+          <h3>Short Exposure</h3>
+          <p class="value" id="wsShortTotal">$0</p>
+        </div>
+        <div class="summary-card net">
+          <h3>Net Exposure</h3>
+          <p class="value" id="wsNetTotal">$0</p>
+        </div>
+        <div class="summary-card net">
+          <h3>Beta Δ (SPY)</h3>
+          <p class="value" id="wsBetaDelta">0</p>
+        </div>
+      </div>
+
+      <div class="tables-container">
+        <div class="table-section">
+          <div class="table-header long">
+            <h2>Long Positions</h2>
+          </div>
+          <table id="wsLongTable">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Type</th>
+                <th>$Δ</th>
+                <th>Beta Δ$</th>
+                <th>Beta</th>
+                <th>Position $</th>
+                <th>Weight</th>
+                <th>Δ$ Weight</th>
+                <th>Quantity</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="table-section">
+          <div class="table-header short">
+            <h2>Short Positions</h2>
+          </div>
+          <table id="wsShortTable">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Type</th>
+                <th>$Δ</th>
+                <th>Beta Δ$</th>
+                <th>Beta</th>
+                <th>Position $</th>
+                <th>Weight</th>
+                <th>Δ$ Weight</th>
+                <th>Quantity</th>
+                <th></th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -1157,24 +1254,44 @@
           // Add active class to clicked button and corresponding content
           button.classList.add('active');
           document.getElementById(targetTab).classList.add('active');
+
+          if (targetTab === 'workspace') {
+            if (timer) {
+              clearInterval(timer);
+              timer = null;
+              statusEl.textContent += ' (auto-refresh paused)';
+            }
+          } else {
+            if (!timer) {
+              schedule();
+            }
+          }
         });
       });
     }
+
+    document.getElementById('syncWorkspace').addEventListener('click', () => {
+        initializeWorkspace();
+    });
 
     // Long/Short view functions
     function getBeta(symbol) {
       // Beta mapping for common symbols
       const betaMap = {
-        'SPY': 1.0,
-        'QQQ': 1.2,
-        'AAPL': 1.1,
-        'MSFT': 1.0,
-        'GOOGL': 1.1,
-        'AMZN': 1.2,
-        'TSLA': 2.0,
-        'NVDA': 1.5,
-        'META': 1.3,
-        'NFLX': 1.4
+        'TSLA': 2.07,
+        'AMZN': 1.31,
+        'NVDA': 2.10,
+        'PLTR': 2.59,
+        'GOOG': 1.01,
+        'GLD': 0.43,
+        'AAPL': 1.11,
+        'SNOW': 1.22,
+        'SPY': 1.00,
+        'META': 1.24,
+        'AMD': 1.92,
+        'USD': 0.00,
+        'CAD': 0.00,
+        'BASE': 0.00
       };
       return betaMap[symbol] || 1.0; // Default to 1.0 if unknown
     }
@@ -1286,6 +1403,157 @@
       };
       let totalGrossExposure = 0;
       let totalGrossDelta = 0;
+      let totalGrossBetaDelta = 0;
+      for (const pos of positions) {
+        totalGrossExposure += positionSize(pos);
+        const dd = Number(pos.delta_dollars || 0);
+        totalGrossDelta += Math.abs(dd);
+        const bdd = Math.abs(calculateBetaWeightedDelta(dd, pos.symbol));
+        if (Number.isFinite(bdd)) totalGrossBetaDelta += bdd;
+      }
+      
+      for (const pos of positions) {
+        const deltaDollars = Number(pos.delta_dollars || 0);
+        const beta = getBeta(pos.symbol);
+        const betaWeightedDelta = calculateBetaWeightedDelta(deltaDollars, pos.symbol);
+        const posDollars = positionSize(pos);
+        const weight = totalGrossExposure > 0 ? (posDollars / totalGrossExposure * 100) : 0;
+        const weightDelta = totalGrossDelta > 0 ? (Math.abs(deltaDollars) / totalGrossDelta * 100) : 0;
+        const weightBetaDelta = totalGrossBetaDelta > 0 ? (Math.abs(betaWeightedDelta) / totalGrossBetaDelta * 100) : 0;
+        
+        const positionData = {
+          ...pos,
+          weight: weight,
+          beta_weighted_delta: betaWeightedDelta,
+          beta: beta,
+          position_dollars: posDollars,
+          weight_delta: weightDelta,
+          weight_beta_delta: weightBetaDelta
+        };
+        
+        if (deltaDollars > 0) {
+          longPositions.push(positionData);
+          totalLongDelta += deltaDollars;
+        } else if (deltaDollars < 0) {
+          shortPositions.push(positionData);
+          totalShortDelta += Math.abs(deltaDollars);
+        }
+        
+        totalBetaWeightedDelta += betaWeightedDelta;
+      }
+      
+      // Sort positions by absolute delta dollars
+      longPositions.sort((a, b) => Math.abs(b.delta_dollars) - Math.abs(a.delta_dollars));
+      shortPositions.sort((a, b) => Math.abs(b.delta_dollars) - Math.abs(a.delta_dollars));
+      
+      // Update summary cards
+      document.getElementById('longTotal').textContent = fmtCurrency(totalLongDelta);
+      document.getElementById('shortTotal').textContent = fmtCurrency(totalShortDelta);
+      document.getElementById('netTotal').textContent = fmtCurrency(totalLongDelta - totalShortDelta);
+      document.getElementById('betaDelta').textContent = fmt(totalBetaWeightedDelta);
+      
+      // Update tables
+      updateLongShortTable(document.querySelector('#longTable tbody'), longPositions);
+      updateLongShortTable(document.querySelector('#shortTable tbody'), shortPositions);
+    }
+
+    function updateLongShortTable(tbody, positions) {
+      tbody.innerHTML = '';
+      
+      if (positions.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 9;
+        td.textContent = 'No positions';
+        td.style.textAlign = 'center';
+        td.style.color = 'var(--muted)';
+        td.style.padding = '20px';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      
+      for (const pos of positions) {
+        const tr = document.createElement('tr');
+        
+        const cells = [
+          pos.symbol || '-',
+          pos.type || '-',
+          fmtCurrency(pos.delta_dollars),
+          fmtCurrency(pos.beta_weighted_delta),
+          fmt(pos.beta),
+          fmtCurrency(pos.position_dollars),
+          `${pos.weight.toFixed(1)}%`,
+          `${(pos.weight_delta ?? 0).toFixed(1)}%`,
+          `${(pos.weight_beta_delta ?? 0).toFixed(1)}%`
+        ];
+        
+        for (const cellText of cells) {
+          const td = document.createElement('td');
+          td.textContent = cellText;
+          tr.appendChild(td);
+        }
+        
+        tbody.appendChild(tr);
+      }
+      // Reapply sort if user selected a column
+      try {
+        const table = tbody.closest('table');
+        const tableId = table && table.id;
+        if (tableId) reapplyTableSort(tableId);
+      } catch {}
+    }
+
+    function fmtCurrency(v) {
+      if (v === undefined || v === null || Number.isNaN(v)) return '$0';
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '$0';
+      return '$' + (Math.abs(n) >= 1000 ? 
+        n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : 
+        n.toFixed(2));
+    }
+
+    // Modified reloadFile to also update Long/Short view
+    const originalReloadFile = reloadFile;
+    reloadFile = async function(showTail=true) {
+      await originalReloadFile(showTail);
+      updateLongShortView(allRows);
+      workspacePositions = aggregateLatestPositions(allRows);
+      updateWorkspaceView();
+    };
+
+    let workspacePositions = [];
+
+    function updateWorkspaceView() {
+      const positions = workspacePositions;
+      
+      // Separate long and short positions
+      const longPositions = [];
+      const shortPositions = [];
+      
+      let totalLongDelta = 0;
+      let totalShortDelta = 0;
+      let totalBetaWeightedDelta = 0;
+      
+      // Calculate portfolio weight denominator using premium for options where available
+      const positionSize = (pos) => {
+        if (pos.type === 'option') {
+          const mult = Number(pos.multiplier || 100);
+          const qty = Number(pos.qty || 0);
+          const px = Number(pos.option_price);
+          if (Number.isFinite(mult) && Number.isFinite(qty) && Number.isFinite(px)) {
+            return Math.abs(px * mult * qty);
+          }
+        }
+        const dd = Number(pos.delta_dollars || 0);
+        if (Number.isFinite(dd) && dd !== 0) return Math.abs(dd);
+        const d = Number(pos.delta || 0);
+        const s = Number(pos.spot || 0);
+        if (Number.isFinite(d) && Number.isFinite(s)) return Math.abs(d * s);
+        return 0;
+      };
+      let totalGrossExposure = 0;
+      let totalGrossDelta = 0;
       for (const pos of positions) {
         totalGrossExposure += positionSize(pos);
         totalGrossDelta += Math.abs(Number(pos.delta_dollars || 0));
@@ -1324,23 +1592,23 @@
       shortPositions.sort((a, b) => Math.abs(b.delta_dollars) - Math.abs(a.delta_dollars));
       
       // Update summary cards
-      document.getElementById('longTotal').textContent = fmtCurrency(totalLongDelta);
-      document.getElementById('shortTotal').textContent = fmtCurrency(totalShortDelta);
-      document.getElementById('netTotal').textContent = fmtCurrency(totalLongDelta - totalShortDelta);
-      document.getElementById('betaDelta').textContent = fmt(totalBetaWeightedDelta);
+      document.getElementById('wsLongTotal').textContent = fmtCurrency(totalLongDelta);
+      document.getElementById('wsShortTotal').textContent = fmtCurrency(totalShortDelta);
+      document.getElementById('wsNetTotal').textContent = fmtCurrency(totalLongDelta - totalShortDelta);
+      document.getElementById('wsBetaDelta').textContent = fmt(totalBetaWeightedDelta);
       
       // Update tables
-      updateLongShortTable(document.querySelector('#longTable tbody'), longPositions);
-      updateLongShortTable(document.querySelector('#shortTable tbody'), shortPositions);
+      updateWorkspaceTable(document.querySelector('#wsLongTable tbody'), longPositions);
+      updateWorkspaceTable(document.querySelector('#wsShortTable tbody'), shortPositions);
     }
 
-    function updateLongShortTable(tbody, positions) {
+    function updateWorkspaceTable(tbody, positions) {
       tbody.innerHTML = '';
       
       if (positions.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 8;
+        td.colSpan = 10;
         td.textContent = 'No positions';
         td.style.textAlign = 'center';
         td.style.color = 'var(--muted)';
@@ -1369,32 +1637,98 @@
           td.textContent = cellText;
           tr.appendChild(td);
         }
+
+        const qtyTd = document.createElement('td');
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.value = pos.qty;
+        qtyInput.style.width = '60px';
+        qtyInput.addEventListener('change', (e) => {
+          const newQty = Number(e.target.value);
+          const positionToUpdate = workspacePositions.find(p => p.id === pos.id);
+          if (positionToUpdate) {
+            const originalQty = positionToUpdate.qty;
+            if (originalQty === 0) return; // Avoid division by zero
+            const ratio = newQty / originalQty;
+
+            positionToUpdate.qty = newQty;
+            positionToUpdate.delta_dollars *= ratio;
+            positionToUpdate.position_dollars *= ratio;
+            positionToUpdate.delta *= ratio;
+            positionToUpdate.gamma *= ratio;
+            positionToUpdate.vega *= ratio;
+            positionToUpdate.theta *= ratio;
+          }
+
+          updateWorkspaceView();
+        });
+        qtyTd.appendChild(qtyInput);
+        tr.appendChild(qtyTd);
+
+        const removeTd = document.createElement('td');
+        const removeButton = document.createElement('button');
+        removeButton.textContent = 'Remove';
+        removeButton.addEventListener('click', () => {
+          const indexToRemove = workspacePositions.findIndex(p => p.id === pos.id);
+          if (indexToRemove > -1) {
+            workspacePositions.splice(indexToRemove, 1);
+          }
+          updateWorkspaceView();
+        });
+        removeTd.appendChild(removeButton);
+        tr.appendChild(removeTd);
         
         tbody.appendChild(tr);
       }
-      // Reapply sort if user selected a column
-      try {
-        const table = tbody.closest('table');
-        const tableId = table && table.id;
-        if (tableId) reapplyTableSort(tableId);
-      } catch {}
     }
 
-    function fmtCurrency(v) {
-      if (v === undefined || v === null || Number.isNaN(v)) return '$0';
-      const n = Number(v);
-      if (!Number.isFinite(n)) return '$0';
-      return '$' + (Math.abs(n) >= 1000 ? 
-        n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : 
-        n.toFixed(2));
-    }
+    document.getElementById('addPositionForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const symbol = document.getElementById('wsSymbol').value;
+      const type = document.getElementById('wsType').value;
+      const qty = Number(document.getElementById('wsQty').value);
+      const strike = Number(document.getElementById('wsStrike').value);
+      const expiry = document.getElementById('wsExpiry').value;
+      const right = document.getElementById('wsRight').value;
+      const delta = Number(document.getElementById('wsDelta').value);
+      const gamma = Number(document.getElementById('wsGamma').value);
+      const vega = Number(document.getElementById('wsVega').value);
+      const theta = Number(document.getElementById('wsTheta').value);
+      const price = Number(document.getElementById('wsPrice').value);
 
-    // Modified reloadFile to also update Long/Short view
-    const originalReloadFile = reloadFile;
-    reloadFile = async function(showTail=true) {
-      await originalReloadFile(showTail);
-      updateLongShortView(allRows);
-    };
+      let newPosition = {
+        symbol: symbol,
+        type: type,
+        qty: qty,
+        delta: 0,
+        gamma: 0,
+        vega: 0,
+        theta: 0,
+        delta_dollars: 0,
+        position_dollars: 0,
+        option_price: price,
+      };
+
+      if (type === 'stock') {
+        newPosition.delta = qty;
+        newPosition.delta_dollars = qty * price;
+        newPosition.position_dollars = Math.abs(qty * price);
+      } else {
+        newPosition.strike = strike;
+        newPosition.expiry = expiry;
+        newPosition.right = right;
+        newPosition.delta = delta;
+        newPosition.gamma = gamma;
+        newPosition.vega = vega;
+        newPosition.theta = theta;
+        newPosition.delta_dollars = delta * price * 100; // Simplification
+        newPosition.position_dollars = Math.abs(qty * price * 100);
+      }
+
+      workspacePositions.push(newPosition);
+      updateWorkspaceView();
+      e.target.reset();
+    });
 
     // Initialize tabs
     initTabs();
@@ -1446,9 +1780,9 @@
       if (!state || !table || state.index < 0) return;
       sortTable(table, state.index, state.asc, state.numericCols.has(state.index));
     }
-    // Columns: Symbol(0), Type(1), $Δ(2), Beta Δ$(3), Beta(4), Position $(5), Weight(6), Δ$ Weight(7)
-    makeTableSortable('longTable', new Set([2,3,4,5,6,7]));
-    makeTableSortable('shortTable', new Set([2,3,4,5,6,7]));
+    // Columns: Symbol(0), Type(1), $Δ(2), Beta Δ$(3), Beta(4), Position $(5), Weight(6), Δ$ Weight(7), Beta Δ$ Weight(8)
+    makeTableSortable('longTable', new Set([2,3,4,5,6,7,8]));
+    makeTableSortable('shortTable', new Set([2,3,4,5,6,7,8]));
 
     // Kick off
     reloadFile();
